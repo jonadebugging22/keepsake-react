@@ -19,9 +19,20 @@
 .vinyl-fab:active { transform: scale(0.94); }
 
 .vinyl-fab-icon {
+  position: absolute;
   width: 40px;
   height: 40px;
   animation: vinyl-spin 3.2s linear infinite;
+}
+.vinyl-fab-paused .vinyl-fab-icon {
+  animation-play-state: paused;
+}
+
+.vinyl-fab-glyph {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
 }
 
 @keyframes vinyl-spin {
@@ -86,6 +97,12 @@
   white-space: nowrap;
 }
 
+.now-playing-buttons {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .stop-btn {
   border: none;
   background: var(--brass);
@@ -96,6 +113,12 @@
   font-weight: 700;
   cursor: pointer;
   flex-shrink: 0;
+}
+
+.stop-btn-outline {
+  background: transparent;
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
 }
 
 .song-card-active {

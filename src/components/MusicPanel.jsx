@@ -2,14 +2,15 @@ import { parseMusicLink, useMusicPlayer } from "./MusicPlayerContext";
 import { useEffect, useRef, useState } from "react";
 
 export default function MusicPanel({ onClose }) {
-  const { songs, addSong, removeSong, playSong, stopSong, nowPlaying, registerModalSlot } = useMusicPlayer();
+  const { songs, addSong, removeSong, playSong, stopSong, nowPlaying, isPaused, togglePause, registerModalSlot } =
+    useMusicPlayer();
   const [url, setUrl] = useState("");
   const anchorRef = useRef(null);
 
   // Hand our anchor div to the shared player while this modal is mounted, so
-  // the persistent "now playing" iframe renders right here (inside the modal
+  // the persistent "now playing" embed renders right here (inside the modal
   // layout) instead of next to the floating vinyl. On unmount, hand back null
-  // so the provider re-docks the same iframe next to the vinyl icon instead
+  // so the provider re-docks the same embed next to the vinyl icon instead
   // of destroying it — that's what keeps playback going after you close this.
   useEffect(() => {
     registerModalSlot(anchorRef.current);
@@ -45,10 +46,6 @@ export default function MusicPanel({ onClose }) {
           <button type="submit">Add</button>
         </form>
 
-        {/* This is where the persistent "now playing" iframe gets docked
-            while the modal is open (see now-playing-modal-slot in the
-            provider) — it's the same iframe that keeps running when you
-            close this modal, it just moves next to the vinyl button instead. */}
         {nowPlaying && (
           <div className="now-playing-card">
             <p className="now-playing-label">Now playing</p>
@@ -57,9 +54,14 @@ export default function MusicPanel({ onClose }) {
               <a href={nowPlaying.url} target="_blank" rel="noopener noreferrer">
                 {nowPlaying.url}
               </a>
-              <button className="stop-btn" onClick={stopSong}>
-                Stop
-              </button>
+              <div className="now-playing-buttons">
+                <button className="stop-btn" onClick={togglePause}>
+                  {isPaused ? "Resume" : "Pause"}
+                </button>
+                <button className="stop-btn stop-btn-outline" onClick={stopSong}>
+                  Stop
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -86,8 +88,8 @@ export default function MusicPanel({ onClose }) {
                       ▶
                     </button>
                   ) : (
-                    <button className="song-play song-play-active" title="Playing" onClick={stopSong}>
-                      ❚❚
+                    <button className="song-play song-play-active" title={isPaused ? "Resume" : "Pause"} onClick={togglePause}>
+                      {isPaused ? "▶" : "❚❚"}
                     </button>
                   )}
                   <button className="song-remove" title="Remove" onClick={() => removeSong(row.id)}>
