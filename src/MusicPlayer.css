@@ -1,0 +1,131 @@
+/* Floating vinyl icon shown when the music modal is closed but a song is loaded */
+.vinyl-fab {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  padding: 0;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.vinyl-fab:active { transform: scale(0.94); }
+
+.vinyl-fab-icon {
+  width: 40px;
+  height: 40px;
+  animation: vinyl-spin 3.2s linear infinite;
+}
+
+@keyframes vinyl-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Hidden docking slot: keeps the iframe alive (still playing) while closed,
+   without showing it — not display:none, since some browsers throttle or
+   suspend media in display:none elements. 1x1px + hidden overflow avoids that. */
+.now-playing-vinyl-slot {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* "Now playing" card inside the open modal */
+.now-playing-card {
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+}
+
+.now-playing-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--brass);
+  margin: 0 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.now-playing-modal-slot-anchor iframe {
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  display: block;
+}
+
+.now-playing-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.now-playing-actions a {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stop-btn {
+  border: none;
+  background: var(--brass);
+  color: #FBF3E4;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.song-card-active {
+  outline: 2px solid var(--brass);
+  outline-offset: -1px;
+}
+
+.song-play {
+  border: none;
+  background: transparent;
+  color: var(--wax);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 8px;
+}
+
+.song-play-active {
+  color: var(--brass);
+}
+
+.music-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: #FFF7EF;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  z-index: 300;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
