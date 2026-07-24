@@ -60,6 +60,7 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
   const [isOpen, setIsOpen] = useState(false);
   const [nowPlaying, setNowPlaying] = useState(null); // song row currently loaded in the persistent embed
   const [isPaused, setIsPaused] = useState(false);
+  const [spotifyReady, setSpotifyReady] = useState(false); // true once the actual player frame exists for the current song
   const [internalToastMsg, setInternalToastMsg] = useState(null);
 
   const internalToastTimer = useRef(null);
@@ -84,8 +85,6 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
   const ytIframeRef = useRef(null);
 
   useEffect(() => {
-    // Sync isPaused with YouTube's own state (e.g. if the user pauses using
-    // the iframe's built-in controls instead of our vinyl button).
     function handleMessage(e) {
       if (!e.origin || !e.origin.includes("youtube.com")) return;
       try {
@@ -105,14 +104,33 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
   const spotifyApiRef = useRef(null);
   const spotifyControllerRef = useRef(null);
   const spotifyContainerRef = useRef(null);
+  // Functions waiting for the API to finish loading — fixes the race where
+  // the script finishes loading (and fires its ready callback) BEFORE the
+  // user has picked a Spotify song, which used to mean nobody was listening
+  // and the controller/frame never got created.
+  const spotifyReadyQueueRef = useRef([]);
+
+  const runWhenSpotifyReady = useCallback((fn) => {
+    if (spotifyApiRef.current) fn(spotifyApiRef.current);
+    else spotifyReadyQueueRef.current.push(fn);
+  }, []);
 
   useEffect(() => {
-    if (window.Spotify?.Iframe || document.getElementById("spotify-iframe-api")) return;
-    const script = document.createElement("script");
-    script.id = "spotify-iframe-api";
-    script.src = "https://open.spotify.com/embed/iframe-api/v1";
-    script.async = true;
-    document.body.appendChild(script);
+    // Register the global ready-callback FIRST, before the script is even
+    // added to the page, so we never miss it regardless of load timing.
+    window.onSpotifyIframeApiReady = (IFrameAPI) => {
+      spotifyApiRef.current = IFrameAPI;
+      const queued = spotifyReadyQueueRef.current;
+      spotifyReadyQueueRef.current = [];
+      queued.forEach((fn) => fn(IFrameAPI));
+    };
+    if (!document.getElementById("spotify-iframe-api")) {
+      const script = document.createElement("script");
+      script.id = "spotify-iframe-api";
+      script.src = "https://open.spotify.com/embed/iframe-api/v1";
+      script.async = true;
+      document.body.appendChild(script);
+    }
   }, []);
 
   useEffect(() => {
@@ -120,31 +138,31 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
     const { platform, spotifyUri } = parseMusicLink(nowPlaying.url);
     if (platform !== "spotify" || !spotifyUri) return;
 
-    const setup = (IFrameAPI) => {
-      spotifyApiRef.current = IFrameAPI;
+    setSpotifyReady(false);
+
+    runWhenSpotifyReady((IFrameAPI) => {
+      if (!spotifyContainerRef.current) return; // panel/vinyl slot not mounted yet, will retry isn't needed: effect reruns on nowPlaying change
       if (!spotifyControllerRef.current) {
-        IFrameAPI.createController(spotifyContainerRef.current, { uri: spotifyUri, width: "100%", height: "152" }, (controller) => {
-          spotifyControllerRef.current = controller;
-          setIsPaused(false);
-          controller.addListener("playback_update", (e) => {
-            setIsPaused(!!e.data.isPaused);
-          });
-        });
+        IFrameAPI.createController(
+          spotifyContainerRef.current,
+          { uri: spotifyUri, width: "100%", height: "152" },
+          (controller) => {
+            spotifyControllerRef.current = controller;
+            setIsPaused(false);
+            setSpotifyReady(true);
+            controller.addListener("playback_update", (e) => {
+              setIsPaused(!!e.data.isPaused);
+            });
+            controller.play();
+          }
+        );
       } else {
         spotifyControllerRef.current.loadUri(spotifyUri);
+        spotifyControllerRef.current.play();
         setIsPaused(false);
+        setSpotifyReady(true);
       }
-    };
-
-    if (spotifyApiRef.current) {
-      setup(spotifyApiRef.current);
-    } else {
-      const prevReady = window.onSpotifyIframeApiReady;
-      window.onSpotifyIframeApiReady = (IFrameAPI) => {
-        prevReady?.(IFrameAPI);
-        setup(IFrameAPI);
-      };
-    }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nowPlaying?.id]);
 
@@ -193,7 +211,6 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
 
   const stopSong = () => setNowPlaying(null);
 
-  // The vinyl button (and the "pause/play" button in the modal) call this.
   const togglePause = () => {
     if (!nowPlaying) return;
     const { platform } = parseMusicLink(nowPlaying.url);
@@ -227,9 +244,10 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
       nowPlaying,
       isPaused,
       togglePause,
+      spotifyReady,
       registerModalSlot
     }),
-    [songs, isOpen, nowPlaying, isPaused]
+    [songs, isOpen, nowPlaying, isPaused, spotifyReady]
   );
 
   return (
@@ -237,8 +255,7 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
       {children}
 
       {/* Floating vinyl: a real play/pause shortcut, visible whenever a song
-          is loaded, regardless of whether the modal is open or closed. To
-          reopen the full panel, use the "Favorite Music" entry point again. */}
+          is loaded, regardless of whether the modal is open or closed. */}
       {nowPlaying && (
         <button
           className={`vinyl-fab ${isPaused ? "vinyl-fab-paused" : ""}`}
@@ -268,8 +285,7 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
 
       {/* The actual embed lives ONCE in the tree and is portaled between the
           modal (when open) and the hidden vinyl slot (when closed), so it
-          never unmounts — that's what keeps playback going. Pause/resume is
-          done via the platform APIs above, not by removing this element. */}
+          never unmounts — that's what keeps playback going. */}
       {nowPlayingEmbed?.embedUrl &&
         createPortal(
           <div className="now-playing-embed-wrap">
@@ -283,7 +299,12 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
                 title={nowPlaying.url}
               />
             )}
-            {nowPlayingEmbed.platform === "spotify" && <div ref={spotifyContainerRef} />}
+            {nowPlayingEmbed.platform === "spotify" && (
+              <>
+                {!spotifyReady && <p className="now-playing-loading">Naglo-load ang player…</p>}
+                <div ref={spotifyContainerRef} style={{ display: spotifyReady ? "block" : "none" }} />
+              </>
+            )}
           </div>,
           modalSlotNode || vinylSlotNode || document.body
         )}
