@@ -1,75 +1,26 @@
-import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabaseClient";
+import { parseMusicLink, useMusicPlayer } from "./MusicPlayerContext";
+import { useEffect, useRef, useState } from "react";
 
-function parseMusicLink(url) {
-  try {
-    const u = new URL(url);
-    if (u.hostname.includes("youtube.com") || u.hostname.includes("youtu.be")) {
-      let videoId = "";
-      if (u.hostname.includes("youtu.be")) {
-        videoId = u.pathname.slice(1);
-      } else {
-        videoId = u.searchParams.get("v") || "";
-        if (!videoId && u.pathname.startsWith("/embed/")) {
-          videoId = u.pathname.split("/embed/")[1];
-        }
-      }
-      if (videoId) return { platform: "youtube", embedUrl: `https://www.youtube.com/embed/${videoId}` };
-    }
-    if (u.hostname.includes("open.spotify.com")) {
-      const parts = u.pathname.split("/").filter(Boolean);
-      if (parts.length >= 2) {
-        const [type, id] = parts;
-        return { platform: "spotify", embedUrl: `https://open.spotify.com/embed/${type}/${id}` };
-      }
-    }
-    return { platform: "other", embedUrl: null };
-  } catch {
-    return { platform: "other", embedUrl: null };
-  }
-}
-
-export default function MusicPanel({ userId, onClose, toast }) {
-  const [songs, setSongs] = useState([]);
+export default function MusicPanel({ onClose }) {
+  const { songs, addSong, removeSong, playSong, stopSong, nowPlaying, registerModalSlot } = useMusicPlayer();
   const [url, setUrl] = useState("");
+  const anchorRef = useRef(null);
 
-  const loadSongs = async () => {
-    const { data, error } = await supabase
-      .from("favorite_songs")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      toast("Couldn't load your songs.");
-      return;
-    }
-    setSongs(data || []);
-  };
-
+  // Hand our anchor div to the shared player while this modal is mounted, so
+  // the persistent "now playing" iframe renders right here (inside the modal
+  // layout) instead of next to the floating vinyl. On unmount, hand back null
+  // so the provider re-docks the same iframe next to the vinyl icon instead
+  // of destroying it — that's what keeps playback going after you close this.
   useEffect(() => {
-    loadSongs();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+    registerModalSlot(anchorRef.current);
+    return () => registerModalSlot(null);
+  }, [registerModalSlot]);
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    const trimmed = url.trim();
-    if (!trimmed) return;
-    const { platform } = parseMusicLink(trimmed);
-
-    const { error } = await supabase.from("favorite_songs").insert({ user_id: userId, url: trimmed, platform });
-    if (error) {
-      toast("Couldn't add that song.");
-      return;
-    }
+    if (!url.trim()) return;
+    await addSong(url);
     setUrl("");
-    loadSongs();
-  };
-
-  const removeSong = async (id) => {
-    await supabase.from("favorite_songs").delete().eq("id", id);
-    loadSongs();
   };
 
   return (
@@ -82,6 +33,7 @@ export default function MusicPanel({ userId, onClose, toast }) {
             &times;
           </button>
         </header>
+
         <form className="add-song-form" onSubmit={onSubmit}>
           <input
             type="url"
@@ -92,37 +44,52 @@ export default function MusicPanel({ userId, onClose, toast }) {
           />
           <button type="submit">Add</button>
         </form>
+
+        {/* This is where the persistent "now playing" iframe gets docked
+            while the modal is open (see now-playing-modal-slot in the
+            provider) — it's the same iframe that keeps running when you
+            close this modal, it just moves next to the vinyl button instead. */}
+        {nowPlaying && (
+          <div className="now-playing-card">
+            <p className="now-playing-label">Now playing</p>
+            <div ref={anchorRef} className="now-playing-modal-slot-anchor" />
+            <div className="now-playing-actions">
+              <a href={nowPlaying.url} target="_blank" rel="noopener noreferrer">
+                {nowPlaying.url}
+              </a>
+              <button className="stop-btn" onClick={stopSong}>
+                Stop
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="songs-list">
           {songs.map((row) => {
-            const { embedUrl } = parseMusicLink(row.url);
+            const { platform } = parseMusicLink(row.url);
+            const isActive = nowPlaying?.id === row.id;
             return (
-              <div key={row.id} className="song-card">
-                {embedUrl && row.platform === "youtube" && (
-                  <iframe
-                    src={embedUrl}
-                    height="160"
-                    allow="autoplay; encrypted-media"
-                    allowFullScreen
-                    loading="lazy"
-                    title={row.url}
-                  />
-                )}
-                {embedUrl && row.platform === "spotify" && (
-                  <iframe src={embedUrl} height="152" allow="encrypted-media" loading="lazy" title={row.url} />
-                )}
-                {!embedUrl && (
-                  <div className="song-card-fallback">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                      <path d="M9 18V5l11-2v13" />
-                      <circle cx="6" cy="18" r="3" />
-                      <circle cx="17" cy="16" r="3" />
-                    </svg>
-                    <a href={row.url} target="_blank" rel="noopener noreferrer">
-                      {row.url}
-                    </a>
-                  </div>
-                )}
+              <div key={row.id} className={`song-card ${isActive ? "song-card-active" : ""}`}>
+                <div className="song-card-fallback">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <path d="M9 18V5l11-2v13" />
+                    <circle cx="6" cy="18" r="3" />
+                    <circle cx="17" cy="16" r="3" />
+                  </svg>
+                  <a href={row.url} target="_blank" rel="noopener noreferrer">
+                    {row.url}
+                  </a>
+                </div>
                 <div className="song-actions">
+                  {!isActive ? (
+                    <button className="song-play" title="Play" onClick={() => playSong(row)}>
+                      ▶
+                    </button>
+                  ) : (
+                    <button className="song-play song-play-active" title="Playing" onClick={stopSong}>
+                      ❚❚
+                    </button>
+                  )}
                   <button className="song-remove" title="Remove" onClick={() => removeSong(row.id)}>
                     &times;
                   </button>
@@ -131,6 +98,7 @@ export default function MusicPanel({ userId, onClose, toast }) {
             );
           })}
         </div>
+
         {songs.length === 0 && (
           <p className="empty-hint">No songs yet — paste a link above to add your first one.</p>
         )}
