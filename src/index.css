@@ -1,0 +1,137 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Nunito:wght@400;600;700;800&display=swap');
+
+:root {
+  --paper: #EFE6D6;
+  --paper-deep: #E4D6BC;
+  --card: #FBF7EF;
+  --ink: #2E2A22;
+  --ink-soft: #8C8171;
+  --brass: #A9793E;
+  --brass-dark: #8A6230;
+  --moss: #5C7159;
+  --wax: #8B3A2E;
+  --wax-bright: #A8483A;
+  --line: #DBCBA9;
+  --dark-bg: #1B1712;
+  --dark-card: #241D16;
+  --shadow: 0 10px 28px rgba(46, 42, 34, 0.14);
+  --shadow-soft: 0 4px 14px rgba(46, 42, 34, 0.08);
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Nunito", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  background-image:
+    radial-gradient(rgba(46, 42, 34, 0.05) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(169, 121, 62, 0.05), transparent 240px);
+  background-size: 16px 16px, 100% 100%;
+}
+
+h1, h2, h3 {
+  font-family: "Fraunces", serif;
+  font-weight: 600;
+  margin: 0;
+}
+
+button, input {
+  font-family: inherit;
+}
+
+a { color: inherit; }
+
+.hidden { display: none !important; }
+
+.eyebrow {
+  font-family: "Nunito", sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+/* ---------- stitched divider, the recurring bookbinding motif ---------- */
+.stitch-divider {
+  border: none;
+  height: 1px;
+  margin: 0;
+  background-image: linear-gradient(90deg, var(--line) 50%, transparent 50%);
+  background-size: 10px 1px;
+  opacity: 0.9;
+}
+
+/* ---------- wax seal button: the signature element ---------- */
+.wax-seal-btn {
+  --wax-size: 52px;
+  position: relative;
+  width: var(--wax-size);
+  height: var(--wax-size);
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.35), transparent 42%),
+    radial-gradient(circle at 68% 74%, rgba(0, 0, 0, 0.25), transparent 55%),
+    radial-gradient(circle at 50% 50%, var(--wax-bright), var(--wax) 70%, #6f2a21 100%);
+  box-shadow:
+    0 3px 0 rgba(0, 0, 0, 0.18),
+    0 8px 18px rgba(139, 58, 46, 0.4),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  display: grid;
+  place-items: center;
+  transition: transform 0.15s ease;
+}
+.wax-seal-btn:active { transform: scale(0.94) translateY(1px); }
+.wax-seal-btn svg {
+  width: 42%;
+  height: 42%;
+  color: #F3E4D2;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.25));
+}
+
+/* ---------- generic buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 22px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease, background 0.15s ease;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.6; cursor: default; }
+
+.btn-primary {
+  background: var(--brass);
+  color: #FBF3E4;
+  width: 100%;
+}
+.btn-primary:hover { background: var(--brass-dark); }
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--ink-soft);
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.form-error { color: var(--wax); font-size: 13px; margin: 8px 0; }
+.form-notice { color: var(--moss); font-size: 13px; margin: 8px 0; }
