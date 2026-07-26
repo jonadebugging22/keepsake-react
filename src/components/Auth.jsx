@@ -8,20 +8,24 @@ export default function Auth() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
+  const [resending, setResending] = useState(false);
 
   const toggleMode = () => {
     setMode((m) => (m === "signin" ? "signup" : "signin"));
     setError("");
     setNotice("");
+    setNeedsConfirmation(false);
   };
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setNotice("");
+    setNeedsConfirmation(false);
     setSubmitting(true);
 
-    const { error: authError } =
+    const { data, error: authError } =
       mode === "signin"
         ? await supabase.auth.signInWithPassword({ email, password })
         : await supabase.auth.signUp({ email, password });
@@ -29,9 +33,43 @@ export default function Auth() {
     setSubmitting(false);
 
     if (authError) {
-      setError(authError.message);
-    } else if (mode === "signup") {
-      setNotice("Account created. Please sign in.");
+      // Supabase returns this specific message when "Confirm email" is
+      // enabled in the dashboard and the account hasn't clicked the link yet.
+      if (authError.message.toLowerCase().includes("email not confirmed")) {
+        setNeedsConfirmation(true);
+        setError("Please confirm your email first — check your inbox for the link we sent you.");
+      } else {
+        setError(authError.message);
+      }
+      return;
+    }
+
+    if (mode === "signup") {
+      // If "Confirm email" is off in Supabase, signUp already returns a
+      // session and data.session will be set — no need to wait for anything.
+      if (data.session) {
+        setNotice("Account created!");
+      } else {
+        setNotice("Almost there — check your email to confirm your account before signing in.");
+        setMode("signin");
+      }
+    }
+  };
+
+  const onResend = async () => {
+    if (!email) {
+      setError("Enter your email above first, then tap resend.");
+      return;
+    }
+    setResending(true);
+    setError("");
+    const { error: resendError } = await supabase.auth.resend({ type: "signup", email });
+    setResending(false);
+    if (resendError) {
+      setError(resendError.message);
+    } else {
+      setNotice("Confirmation email sent again — check your inbox.");
+      setNeedsConfirmation(false);
     }
   };
 
@@ -69,6 +107,17 @@ export default function Auth() {
             </div>
             {error && <p className="form-error">{error}</p>}
             {notice && <p className="form-notice">{notice}</p>}
+            {needsConfirmation && (
+              <button
+                type="button"
+                className="link-btn"
+                onClick={onResend}
+                disabled={resending}
+                style={{ marginBottom: 12 }}
+              >
+                {resending ? "Sending…" : "Resend confirmation email"}
+              </button>
+            )}
             <button type="submit" className="btn btn-primary" disabled={submitting}>
               {submitting ? "just a sec…" : mode === "signin" ? "Sign in" : "Create account"}
             </button>
