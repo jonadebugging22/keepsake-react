@@ -50,6 +50,13 @@ export default function App() {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       if (!s) setView("desk");
+      // After email-confirmation or magic-link redirects, Supabase appends
+      // #access_token=...&refresh_token=... to the URL so the client can
+      // pick up the session. Once that's done, strip it so the address bar
+      // doesn't show raw tokens.
+      if (s && window.location.hash.includes("access_token")) {
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
