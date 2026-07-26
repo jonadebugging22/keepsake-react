@@ -25,7 +25,7 @@ export default function Desk({ userId, onOpenPictures, onOpenVideos, onOpenMusic
   return (
     <section id="desk-screen" className="screen">
       <header className="desk-header">
-        <h1 className="brand">Keepsake</h1>
+        <h1 className="brand">Alvebum</h1>
         <button className="link-btn" onClick={() => supabase.auth.signOut()}>
           sign out
         </button>

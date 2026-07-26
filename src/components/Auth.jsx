@@ -76,7 +76,7 @@ export default function Auth() {
   return (
     <section id="auth-screen" className="screen">
       <div className="auth-card">
-        <h1 className="brand">Keepsake</h1>
+        <h1 className="brand">Alvebum</h1>
         <p className="tagline">a cozy little place for your pictures, videos &amp; songs</p>
         <div className="card-panel">
           <form onSubmit={onSubmit}>
