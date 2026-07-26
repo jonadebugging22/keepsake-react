@@ -405,3 +405,19 @@
 @media (min-width: 640px) {
   .videos-grid { grid-template-columns: repeat(3, 1fr); }
 }
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.export-all-btn {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.export-all-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  text-decoration: none;
+}

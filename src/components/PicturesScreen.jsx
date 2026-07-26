@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase, MEDIA_BUCKET } from "../lib/supabaseClient";
 import DomeGallery from "./DomeGallery";
+import JSZip from "jszip";
 
 function uuid() {
   if (crypto.randomUUID) return crypto.randomUUID();
@@ -13,6 +14,7 @@ function uuid() {
 
 export default function PicturesScreen({ userId, onBack, toast }) {
   const [images, setImages] = useState(null); // null = loading
+  const [exporting, setExporting] = useState(false);
   const fileInputRef = useRef(null);
 
   const loadPictures = async () => {
@@ -71,6 +73,37 @@ export default function PicturesScreen({ userId, onBack, toast }) {
 
   const isEmpty = images && images.length === 0;
 
+  const exportAll = async () => {
+    if (!images || images.length === 0) return;
+    setExporting(true);
+    toast("Preparing your photos…");
+    try {
+      const zip = new JSZip();
+      await Promise.all(
+        images.map(async (img, i) => {
+          const res = await fetch(img.src);
+          const blob = await res.blob();
+          const fallbackExt = (blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
+          const name = img.alt || `photo-${i + 1}.${fallbackExt}`;
+          zip.file(name, blob);
+        })
+      );
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "keepsake-pictures.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast("Couldn't export your pictures.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <section id="pictures-screen" className="screen dark">
       <header className="view-header">
@@ -78,26 +111,36 @@ export default function PicturesScreen({ userId, onBack, toast }) {
           &larr; back
         </button>
         <h2>Pictures</h2>
-        <label className="upload-label">
+        <div className="header-actions">
           <button
             type="button"
-            className="wax-seal-btn"
-            aria-label="Add pictures"
-            onClick={() => fileInputRef.current?.click()}
+            className="link-btn export-all-btn"
+            onClick={exportAll}
+            disabled={exporting || isEmpty || !images}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
+            {exporting ? "Exporting…" : "Export all"}
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            onChange={onUpload}
-          />
-        </label>
+          <label className="upload-label">
+            <button
+              type="button"
+              className="wax-seal-btn"
+              aria-label="Add pictures"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={onUpload}
+            />
+          </label>
+        </div>
       </header>
 
       <div className="dome-container">

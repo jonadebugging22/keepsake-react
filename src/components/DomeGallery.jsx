@@ -14,6 +14,27 @@ const getDataNumber = (el, name, fallback) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+// Cross-origin <a download> links often just open the image in a new tab
+// instead of saving it, since the download attribute isn't honored across
+// origins by every browser. Fetching as a blob and creating an object URL
+// sidesteps that and forces an actual save.
+async function downloadFile(url, filename) {
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = filename || "photo.jpg";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
+  } catch {
+    window.open(url, "_blank");
+  }
+}
+
 function buildItems(pool, seg) {
   const xCols = Array.from({ length: seg }, (_, i) => -37 + i * 2);
   const evenYs = [-4, -2, 0, 2, 4];
@@ -414,9 +435,23 @@ export default function DomeGallery({
       overlay.style.transformOrigin = "top left";
       overlay.style.transition = `transform ${enlargeTransitionMs}ms ease, opacity ${enlargeTransitionMs}ms ease`;
       const rawSrc = parent.dataset.src || el.querySelector("img")?.src || "";
+      const rawAlt = parent.dataset.alt || "";
       const img = document.createElement("img");
       img.src = rawSrc;
       overlay.appendChild(img);
+
+      const downloadBtn = document.createElement("button");
+      downloadBtn.type = "button";
+      downloadBtn.className = "enlarge-download-btn";
+      downloadBtn.setAttribute("aria-label", "Download photo");
+      downloadBtn.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>';
+      downloadBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const filename = rawAlt || rawSrc.split("/").pop().split("?")[0] || "photo.jpg";
+        downloadFile(rawSrc, filename);
+      });
+      overlay.appendChild(downloadBtn);
       viewerRef.current.appendChild(overlay);
       const tx0 = tileR.left - frameR.left;
       const ty0 = tileR.top - frameR.top;
@@ -523,6 +558,7 @@ export default function DomeGallery({
                 key={`${it.x},${it.y},${i}`}
                 className="item"
                 data-src={it.src}
+                data-alt={it.alt}
                 data-offset-x={it.x}
                 data-offset-y={it.y}
                 data-size-x={it.sizeX}

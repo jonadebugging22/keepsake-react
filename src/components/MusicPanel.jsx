@@ -1,11 +1,24 @@
-import { parseMusicLink, useMusicPlayer } from "./MusicPlayerContext";
+import { getPlaybackInfo, useMusicPlayer } from "./MusicPlayerContext";
 import { useEffect, useRef, useState } from "react";
 
+function songLabel(row) {
+  if (row.platform === "file") {
+    try {
+      const path = decodeURIComponent(new URL(row.url).pathname);
+      return path.split("/").pop();
+    } catch {
+      return row.url;
+    }
+  }
+  return row.url;
+}
+
 export default function MusicPanel({ onClose }) {
-  const { songs, addSong, removeSong, playSong, stopSong, nowPlaying, isPaused, togglePause, registerModalSlot } =
+  const { songs, addSong, addSongFile, removeSong, playSong, stopSong, nowPlaying, isPaused, togglePause, registerModalSlot } =
     useMusicPlayer();
   const [url, setUrl] = useState("");
   const anchorRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   // Hand our anchor div to the shared player while this modal is mounted, so
   // the persistent "now playing" embed renders right here (inside the modal
@@ -22,6 +35,13 @@ export default function MusicPanel({ onClose }) {
     if (!url.trim()) return;
     await addSong(url);
     setUrl("");
+  };
+
+  const onFileChosen = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await addSongFile(file);
+    e.target.value = "";
   };
 
   return (
@@ -46,13 +66,23 @@ export default function MusicPanel({ onClose }) {
           <button type="submit">Add</button>
         </form>
 
+        <button type="button" className="upload-audio-btn" onClick={() => fileInputRef.current?.click()}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3v12" />
+            <path d="M7 10l5 5 5-5" />
+            <path d="M5 21h14" />
+          </svg>
+          <span>Or upload a music file from your phone</span>
+        </button>
+        <input ref={fileInputRef} type="file" accept="audio/*" hidden onChange={onFileChosen} />
+
         {nowPlaying && (
           <div className="now-playing-card">
             <p className="now-playing-label">Now playing</p>
             <div ref={anchorRef} className="now-playing-modal-slot-anchor" />
             <div className="now-playing-actions">
               <a href={nowPlaying.url} target="_blank" rel="noopener noreferrer">
-                {nowPlaying.url}
+                {songLabel(nowPlaying)}
               </a>
               <div className="now-playing-buttons">
                 <button className="stop-btn" onClick={togglePause}>
@@ -68,7 +98,6 @@ export default function MusicPanel({ onClose }) {
 
         <div className="songs-list">
           {songs.map((row) => {
-            const { platform } = parseMusicLink(row.url);
             const isActive = nowPlaying?.id === row.id;
             return (
               <div key={row.id} className={`song-card ${isActive ? "song-card-active" : ""}`}>
@@ -79,7 +108,7 @@ export default function MusicPanel({ onClose }) {
                     <circle cx="17" cy="16" r="3" />
                   </svg>
                   <a href={row.url} target="_blank" rel="noopener noreferrer">
-                    {row.url}
+                    {songLabel(row)}
                   </a>
                 </div>
                 <div className="song-actions">

@@ -200,3 +200,26 @@ main.sphere-main {
 body.dg-scroll-lock {
   overflow: hidden;
 }
+
+.enlarge-download-btn {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 40;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(27, 23, 18, 0.65);
+  backdrop-filter: blur(4px);
+  color: #FFF7EF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.enlarge-download-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.enlarge-download-btn:active { transform: scale(0.92); }

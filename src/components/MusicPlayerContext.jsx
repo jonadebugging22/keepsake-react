@@ -1,6 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { supabase } from "../lib/supabaseClient";
+import { supabase, MEDIA_BUCKET } from "../lib/supabaseClient";
+
+function uuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 export function parseMusicLink(url) {
   try {
@@ -28,17 +37,21 @@ export function parseMusicLink(url) {
       const parts = u.pathname.split("/").filter(Boolean);
       if (parts.length >= 2) {
         const [type, id] = parts;
-        return {
-          platform: "spotify",
-          embedUrl: `https://open.spotify.com/embed/${type}/${id}`,
-          spotifyUri: `spotify:${type}:${id}`
-        };
+        return { platform: "spotify", embedUrl: `https://open.spotify.com/embed/${type}/${id}?utm_source=generator` };
       }
     }
     return { platform: "other", embedUrl: null };
   } catch {
     return { platform: "other", embedUrl: null };
   }
+}
+
+// Uploaded audio files are stored with platform === "file" and url === the
+// public storage URL directly, so we don't need to guess anything about them.
+export function getPlaybackInfo(row) {
+  if (!row) return null;
+  if (row.platform === "file") return { platform: "file", embedUrl: row.url };
+  return parseMusicLink(row.url);
 }
 
 const MusicPlayerCtx = createContext(null);
@@ -50,17 +63,14 @@ export function useMusicPlayer() {
 }
 
 // Mount this ONCE near the root of the app (in App.jsx), wrapping everything.
-// It owns the song list + the "now playing" embed, and keeps that embed's
-// iframe alive in the DOM (via portal) whether the modal is open or closed,
-// so nothing pauses/resets when you navigate pages or close the panel.
-// The floating vinyl button is a real play/pause shortcut (not a "reopen
-// modal" button) — it controls playback directly via each platform's API.
+// It owns the song list + the "now playing" embed, and keeps it alive in the
+// DOM (via portal) whether the modal is open or closed, so nothing stops
+// when you navigate pages or close the panel.
 export function MusicPlayerProvider({ userId, toast: externalToast, children }) {
   const [songs, setSongs] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
-  const [nowPlaying, setNowPlaying] = useState(null); // song row currently loaded in the persistent embed
+  const [nowPlaying, setNowPlaying] = useState(null);
   const [isPaused, setIsPaused] = useState(false);
-  const [spotifyReady, setSpotifyReady] = useState(false); // true once the actual player frame exists for the current song
   const [internalToastMsg, setInternalToastMsg] = useState(null);
 
   const internalToastTimer = useRef(null);
@@ -81,9 +91,8 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
     setVinylSlotNode(vinylSlotRef.current);
   }, []);
 
-  // ---- YouTube playback control (postMessage to the embed's iframe) ----
+  // ---- YouTube control: postMessage to the embed's iframe (no external script needed) ----
   const ytIframeRef = useRef(null);
-
   useEffect(() => {
     function handleMessage(e) {
       if (!e.origin || !e.origin.includes("youtube.com")) return;
@@ -93,78 +102,42 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
           setIsPaused(data.info.playerState === 2);
         }
       } catch {
-        // not a JSON message we care about
+        // ignore non-JSON messages
       }
     }
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
   }, []);
 
-  // ---- Spotify playback control (official iFrame API, loaded once) ----
-  const spotifyApiRef = useRef(null);
-  const spotifyControllerRef = useRef(null);
-  const spotifyContainerRef = useRef(null);
-  // Functions waiting for the API to finish loading — fixes the race where
-  // the script finishes loading (and fires its ready callback) BEFORE the
-  // user has picked a Spotify song, which used to mean nobody was listening
-  // and the controller/frame never got created.
-  const spotifyReadyQueueRef = useRef([]);
+  // ---- Spotify: plain, reliable iframe embed. Pause = unmount (stops audio
+  // for certain), resume = remount (restarts the track). No external script,
+  // no API race conditions — trades exact resume-position for reliability. ----
 
-  const runWhenSpotifyReady = useCallback((fn) => {
-    if (spotifyApiRef.current) fn(spotifyApiRef.current);
-    else spotifyReadyQueueRef.current.push(fn);
-  }, []);
+  // ---- Uploaded audio file: native <audio>, true pause/resume at position ----
+  const audioElRef = useRef(null);
 
+  const nowPlayingInfo = nowPlaying ? getPlaybackInfo(nowPlaying) : null;
+
+  // Media Session API: gives the OS/lock-screen real play/pause controls and
+  // helps some mobile browsers keep audio alive a little longer in the
+  // background. It can't override each browser's own autoplay/background
+  // rules, but it's the closest a plain web page can get.
   useEffect(() => {
-    // Register the global ready-callback FIRST, before the script is even
-    // added to the page, so we never miss it regardless of load timing.
-    window.onSpotifyIframeApiReady = (IFrameAPI) => {
-      spotifyApiRef.current = IFrameAPI;
-      const queued = spotifyReadyQueueRef.current;
-      spotifyReadyQueueRef.current = [];
-      queued.forEach((fn) => fn(IFrameAPI));
-    };
-    if (!document.getElementById("spotify-iframe-api")) {
-      const script = document.createElement("script");
-      script.id = "spotify-iframe-api";
-      script.src = "https://open.spotify.com/embed/iframe-api/v1";
-      script.async = true;
-      document.body.appendChild(script);
+    if (!("mediaSession" in navigator)) return;
+    if (!nowPlaying) {
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = "none";
+      return;
     }
-  }, []);
-
-  useEffect(() => {
-    if (!nowPlaying) return;
-    const { platform, spotifyUri } = parseMusicLink(nowPlaying.url);
-    if (platform !== "spotify" || !spotifyUri) return;
-
-    setSpotifyReady(false);
-
-    runWhenSpotifyReady((IFrameAPI) => {
-      if (!spotifyContainerRef.current) return; // panel/vinyl slot not mounted yet, will retry isn't needed: effect reruns on nowPlaying change
-      if (!spotifyControllerRef.current) {
-        IFrameAPI.createController(
-          spotifyContainerRef.current,
-          { uri: spotifyUri, width: "100%", height: "152" },
-          (controller) => {
-            spotifyControllerRef.current = controller;
-            setIsPaused(false);
-            setSpotifyReady(true);
-            controller.addListener("playback_update", (e) => {
-              setIsPaused(!!e.data.isPaused);
-            });
-            controller.play();
-          }
-        );
-      } else {
-        spotifyControllerRef.current.loadUri(spotifyUri);
-        spotifyControllerRef.current.play();
-        setIsPaused(false);
-        setSpotifyReady(true);
-      }
+    navigator.mediaSession.metadata = new window.MediaMetadata({
+      title: nowPlaying.url,
+      artist: "Keepsake"
     });
+    navigator.mediaSession.playbackState = isPaused ? "paused" : "playing";
+    navigator.mediaSession.setActionHandler("play", () => togglePauseRef.current());
+    navigator.mediaSession.setActionHandler("pause", () => togglePauseRef.current());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nowPlaying?.id]);
+  }, [nowPlaying?.id, isPaused]);
 
   const loadSongs = async () => {
     if (!userId) return;
@@ -198,6 +171,32 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
     loadSongs();
   };
 
+  // Upload a local audio file (mp3, m4a, wav, etc.) from the user's device.
+  const addSongFile = async (file) => {
+    if (!file) return;
+    toast(`Uploading ${file.name}…`);
+    const ext = file.name.split(".").pop();
+    const path = `${userId}/audio/${uuid()}.${ext}`;
+    const { error: uploadError } = await supabase.storage.from(MEDIA_BUCKET).upload(path, file, {
+      cacheControl: "3600",
+      upsert: false
+    });
+    if (uploadError) {
+      toast(`Upload failed: ${uploadError.message}`);
+      return;
+    }
+    const { data: pub } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(path);
+    const { error } = await supabase
+      .from("favorite_songs")
+      .insert({ user_id: userId, url: pub.publicUrl, platform: "file" });
+    if (error) {
+      toast("Couldn't save that song.");
+      return;
+    }
+    toast("Song added!");
+    loadSongs();
+  };
+
   const removeSong = async (id) => {
     if (nowPlaying?.id === id) setNowPlaying(null);
     await supabase.from("favorite_songs").delete().eq("id", id);
@@ -213,7 +212,7 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
 
   const togglePause = () => {
     if (!nowPlaying) return;
-    const { platform } = parseMusicLink(nowPlaying.url);
+    const { platform } = getPlaybackInfo(nowPlaying);
     if (platform === "youtube") {
       const iframe = ytIframeRef.current;
       if (!iframe?.contentWindow) return;
@@ -221,15 +220,21 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
       iframe.contentWindow.postMessage(JSON.stringify({ event: "command", func: cmd, args: "" }), "*");
       setIsPaused(!isPaused);
     } else if (platform === "spotify") {
-      spotifyControllerRef.current?.togglePlay();
+      // no persistent controller to call — just toggle mount/unmount below
       setIsPaused(!isPaused);
+    } else if (platform === "file") {
+      const audio = audioElRef.current;
+      if (!audio) return;
+      if (audio.paused) audio.play();
+      else audio.pause();
+      // isPaused updates via the audio element's own onPlay/onPause below
     }
   };
+  const togglePauseRef = useRef(togglePause);
+  togglePauseRef.current = togglePause;
 
   const open = () => setIsOpen(true);
   const close = () => setIsOpen(false);
-
-  const nowPlayingEmbed = nowPlaying ? parseMusicLink(nowPlaying.url) : null;
 
   const value = useMemo(
     () => ({
@@ -238,24 +243,24 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
       open,
       close,
       addSong,
+      addSongFile,
       removeSong,
       playSong,
       stopSong,
       nowPlaying,
       isPaused,
       togglePause,
-      spotifyReady,
       registerModalSlot
     }),
-    [songs, isOpen, nowPlaying, isPaused, spotifyReady]
+    [songs, isOpen, nowPlaying, isPaused]
   );
 
   return (
     <MusicPlayerCtx.Provider value={value}>
       {children}
 
-      {/* Floating vinyl: a real play/pause shortcut, visible whenever a song
-          is loaded, regardless of whether the modal is open or closed. */}
+      {/* Floating vinyl: play/pause shortcut, visible whenever a song is
+          loaded, regardless of whether the modal is open or closed. */}
       {nowPlaying && (
         <button
           className={`vinyl-fab ${isPaused ? "vinyl-fab-paused" : ""}`}
@@ -283,27 +288,44 @@ export function MusicPlayerProvider({ userId, toast: externalToast, children }) 
       )}
       <div ref={vinylSlotRef} className="now-playing-vinyl-slot" />
 
-      {/* The actual embed lives ONCE in the tree and is portaled between the
-          modal (when open) and the hidden vinyl slot (when closed), so it
-          never unmounts — that's what keeps playback going. */}
-      {nowPlayingEmbed?.embedUrl &&
+      {/* The actual embed/audio is portaled between the modal (when open)
+          and the hidden vinyl slot (when closed) so it never unmounts on
+          navigation — that's what keeps playback going between pages. */}
+      {nowPlayingInfo?.embedUrl &&
         createPortal(
           <div className="now-playing-embed-wrap">
-            {nowPlayingEmbed.platform === "youtube" && (
+            {nowPlayingInfo.platform === "youtube" && (
               <iframe
                 ref={ytIframeRef}
-                src={nowPlayingEmbed.embedUrl}
+                src={nowPlayingInfo.embedUrl}
                 height="160"
                 allow="autoplay; encrypted-media"
                 allowFullScreen
                 title={nowPlaying.url}
               />
             )}
-            {nowPlayingEmbed.platform === "spotify" && (
-              <>
-                {!spotifyReady && <p className="now-playing-loading">Naglo-load ang player…</p>}
-                <div ref={spotifyContainerRef} style={{ display: spotifyReady ? "block" : "none" }} />
-              </>
+            {nowPlayingInfo.platform === "spotify" &&
+              (!isPaused ? (
+                <iframe
+                  key={nowPlaying.id}
+                  src={nowPlayingInfo.embedUrl}
+                  height="152"
+                  allow="autoplay; encrypted-media"
+                  title={nowPlaying.url}
+                />
+              ) : (
+                <div className="spotify-paused-placeholder">Naka-pause</div>
+              ))}
+            {nowPlayingInfo.platform === "file" && (
+              <audio
+                ref={audioElRef}
+                src={nowPlayingInfo.embedUrl}
+                controls
+                autoPlay
+                style={{ width: "100%" }}
+                onPause={() => setIsPaused(true)}
+                onPlay={() => setIsPaused(false)}
+              />
             )}
           </div>,
           modalSlotNode || vinylSlotNode || document.body
